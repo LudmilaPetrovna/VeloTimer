@@ -11,7 +11,6 @@
 *.class
 
 # Generated files
-bin/
 bin/resources.ap_
 bin/res/
 bin/jarlist.cache
