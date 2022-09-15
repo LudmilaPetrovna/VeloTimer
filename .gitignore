@@ -1,8 +1,8 @@
 # Built application files
-*.apk
 *.aar
 *.ap_
 *.aab
+*.cache
 
 # Files for the ART/Dalvik VM
 *.dex
@@ -12,6 +12,13 @@
 
 # Generated files
 bin/
+bin/resources.ap_
+bin/res/
+bin/jarlist.cache
+bin/dexedLibs/
+bin/classes.dex
+bin/classes/
+bin/AndroidManifest.xml
 gen/
 out/
 #  Uncomment the following line in case you need and you don't have the release build type files in your app
