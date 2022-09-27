@@ -8,11 +8,14 @@ import java.util.Locale;
 import android.app.ActionBar.LayoutParams;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.res.AssetManager;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.PowerManager;
+import android.os.PowerManager.WakeLock;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.speech.tts.TextToSpeech.OnUtteranceCompletedListener;
@@ -22,9 +25,12 @@ import android.text.TextPaint;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.TypedValue;
+import android.view.Display;
 import android.view.Gravity;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -50,11 +56,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 	TextView clock;
 	LinearLayout main;
 
-	
 	// options
 	int speechPauseMs=3000;
 	boolean sayPercent=true;
 	boolean mute=false;
+	private WakeLock waker=null;
+	private PowerManager pm=null;
 
 	@Override
 	protected void onCreate(Bundle savedInstanceState){
@@ -119,10 +126,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 		}
 		main.addView(timeSelection);
 		clock=new TextView(this);
-		clock.setTextSize(TypedValue.COMPLEX_UNIT_DIP,getTextsizeFillScreen("-00:00:00-"));
 		clock.setGravity(Gravity.CENTER_HORIZONTAL);
 		clock.setSingleLine(true);
 		clock.setPadding(0,0,0,0);
+		Log.e("CLOCK","on create");
+		ajustClockSize();
 		main.addView(clock);
 		bottomControls=new LinearLayout(this);
 		bottomControls.setOrientation(LinearLayout.HORIZONTAL);
@@ -156,13 +164,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 		bottomControls.setVisibility(View.GONE);
 		tts=new TextToSpeech(this,this);
 		scroll.addView(main);
+
+		try{
+			requestWindowFeature(Window.FEATURE_NO_TITLE);
+			requestWindowFeature(Window.FEATURE_SWIPE_TO_DISMISS);
+		}catch(Throwable t){
+		}
+		pm=(PowerManager)getSystemService(Context.POWER_SERVICE);
+
 		setContentView(scroll);
+
+	}
+
+	void ajustClockSize(){
+		clock.setTextSize(TypedValue.COMPLEX_UNIT_DIP,getTextsizeFillScreen("-00:00:00-"));
 	}
 
 	int getTextsizeFillScreen(String sample){
 
 		DisplayMetrics dm=new DisplayMetrics();
-		getWindowManager().getDefaultDisplay().getMetrics(dm);
+		Display dd=getWindowManager().getDefaultDisplay();
+		dd.getMetrics(dm);
+
+		Log.e("CLOCK","ajusting text view to "+dm.widthPixels+"x"+dm.heightPixels+",  "+dd.getHeight()+"   "+dm.density);
 
 		TextView dummy=new TextView(this);
 		dummy.setText(sample);
@@ -178,12 +202,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 			Log.e("SCALE",min+"..."+max+"="+tr.width()+"<"+dm.widthPixels+"&&"+tr.height()+"<"+dm.heightPixels);
 			if(tr.width()<dm.widthPixels&&tr.height()<dm.heightPixels){
 				min=cur;
-			} else {
+			}else{
 				max=cur;
 			}
-			if(max-min<10){break;}
-			
+			if(max-min<10){
+				break;
+			}
+
 		}
+		Log.e("CLOCK","ajusted size: "+min);
 
 		return(min);
 
@@ -209,11 +236,35 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 	}
 
 	@Override
+	protected void onResume(){
+		Log.e("CLOCK","got onresume event");
+		super.onResume();
+		updateViews();
+	}
+
+	@Override
+	public void onBackPressed(){
+		// killing process to kill all threads, including TTS thread
+		super.onBackPressed();
+		finish();
+		System.exit(0);
+	}
+
+	@Override
 	@Deprecated
 	public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode){
-		// TODO Auto-generated method stub
+		Log.e("CLOCK","got pip event");
+
 		super.onPictureInPictureModeChanged(isInPictureInPictureMode);
-		clock.setTextSize(TypedValue.COMPLEX_UNIT_DIP,getTextsizeFillScreen("-00:00:00-"));
+		if(isInPictureInPictureMode){
+			new android.os.Handler().postDelayed(new Runnable(){
+				public void run(){
+					Log.e("CLOCK","got pip+1000 event");
+					bottomControls.setVisibility(View.GONE);
+					ajustClockSize();
+				}
+			},1000);
+		}
 
 	}
 
@@ -225,6 +276,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 	@Override
 	public void onInit(int status){
 		if(status==TextToSpeech.SUCCESS){
+			// TODO: переписать это безобразие
 			int result=tts.setLanguage(Locale.forLanguageTag("RU"));
 			if(result==TextToSpeech.LANG_MISSING_DATA||result==TextToSpeech.LANG_NOT_SUPPORTED){
 				Log.e(TAG,"This Language is not supported");
@@ -268,10 +320,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 				}
 			});
 			try{
-				Thread.sleep(1000);
+				Thread.sleep(200);
 			}catch(InterruptedException e){
-				// TODO Auto-generated catch block
-				e.printStackTrace();
 			}
 		}
 	}
@@ -298,35 +348,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 				d.setMessage(new String(buf));
 				d.show();
 			}catch(IOException e){
-				// TODO Auto-generated catch block
-				e.printStackTrace();
 				clock.setText(e.toString());
 			}
 		}
 		if(tagParam[0].equals("train")){
 			duration=Integer.parseInt(tagParam[1],10);
-			started=System.currentTimeMillis();
-			bottomControls.setVisibility(View.VISIBLE);
-			topButtons.setVisibility(View.GONE);
-			timeSelection.setVisibility(View.GONE);
-			clock.setVisibility(View.VISIBLE);
-			isRunning=true;
-
-			new Thread(this).start();
+			setRunning(true);
 		}
 		if(tagParam[0].equals("pause")){
 			isPause=!isPause;
 		}
 		if(tagParam[0].equals("pip")){
+
 			enterPictureInPictureMode();
 		}
 		if(tagParam[0].equals("reset")){
-			isRunning=false;
-			bottomControls.setVisibility(View.GONE);
-			topButtons.setVisibility(View.VISIBLE);
-			timeSelection.setVisibility(View.VISIBLE);
-			clock.setVisibility(View.GONE);
-			
+			setRunning(false);
 		}
 		if(tagParam[0].equals("mute")){
 			if(!mute){
@@ -335,4 +372,39 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 			mute=!mute;
 		}
 	}
+
+	public void setRunning(boolean doRun){
+		isRunning=doRun;
+		started=System.currentTimeMillis();
+		if(isRunning){
+			waker=pm.newWakeLock(PowerManager.FULL_WAKE_LOCK|PowerManager.ACQUIRE_CAUSES_WAKEUP|PowerManager.ON_AFTER_RELEASE,"gogogo");
+			waker.acquire();
+			getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+			new Thread(this).start();
+
+		}else{
+			if(waker!=null){
+				waker.release();
+				waker=null;
+			}
+		}
+		updateViews();
+	}
+
+	public void updateViews(){
+		if(isRunning){
+			bottomControls.setVisibility(View.VISIBLE);
+			topButtons.setVisibility(View.GONE);
+			timeSelection.setVisibility(View.GONE);
+			clock.setVisibility(View.VISIBLE);
+			ajustClockSize();
+		}else{
+			bottomControls.setVisibility(View.GONE);
+			topButtons.setVisibility(View.VISIBLE);
+			timeSelection.setVisibility(View.VISIBLE);
+			clock.setVisibility(View.GONE);
+		}
+
+	}
+
 }
